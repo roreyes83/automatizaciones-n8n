@@ -104,4 +104,4 @@ curl -X POST http://localhost:5678/webhook/contacto \
 
 ## Autor
 
-**Rolando** (agrega tu apellido y LinkedIn aquí) · [GitHub](https://github.com/roreyes83)
+**Rolando Reyes** (www.linkedin.com/in/rolando-reyes-chavez) · [GitHub](https://github.com/roreyes83)
