@@ -1,0 +1,11 @@
+# Secretos: nunca subir
+.env
+
+# Facturas reales del proyecto 2 (datos privados)
+facturas/*
+!facturas/.gitkeep
+
+# Archivos del sistema
+Thumbs.db
+desktop.ini
+.DS_Store
