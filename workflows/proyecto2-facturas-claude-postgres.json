@@ -1,0 +1,162 @@
+{
+  "name": "Proyecto 2 - Facturas PDF con Claude a PostgreSQL",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Registrar factura",
+        "formDescription": "Sube una factura en PDF. La IA extrae los datos y los guarda en la base de datos.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "factura",
+              "fieldType": "file",
+              "acceptFileTypes": ".pdf",
+              "multipleFiles": false,
+              "requiredField": true
+            }
+          ]
+        },
+        "responseMode": "lastNode",
+        "options": {
+          "path": "facturas"
+        }
+      },
+      "id": "b2c3d4e5-0001-4000-8000-000000000001",
+      "name": "Formulario de factura",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "7a1d0c55-4b8e-4f0a-9d3c-facturas00001"
+    },
+    {
+      "parameters": {
+        "operation": "binaryToPropery",
+        "binaryPropertyName": "factura",
+        "destinationKey": "pdf_base64",
+        "options": {}
+      },
+      "id": "b2c3d4e5-0002-4000-8000-000000000002",
+      "name": "PDF a base64",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-haiku-5-5', max_tokens: 2000, output_config: { effort: 'low', format: { type: 'json_schema', schema: {\"type\": \"object\", \"additionalProperties\": false, \"properties\": {\"numero_factura\": {\"type\": \"string\", \"description\": \"Número de la factura, ej. 001-001-000012345\"}, \"fecha_emision\": {\"type\": \"string\", \"description\": \"Fecha de emisión en formato AAAA-MM-DD, o vacío si no aparece\"}, \"proveedor\": {\"type\": \"string\", \"description\": \"Razón social de quien emite la factura\"}, \"ruc_proveedor\": {\"type\": \"string\", \"description\": \"RUC o identificación tributaria del emisor\"}, \"cliente\": {\"type\": \"string\", \"description\": \"Nombre del cliente o comprador\"}, \"subtotal\": {\"type\": \"number\"}, \"iva\": {\"type\": \"number\"}, \"total\": {\"type\": \"number\"}, \"moneda\": {\"type\": \"string\", \"description\": \"Código ISO de la moneda, ej. USD\"} }, \"required\": [\"numero_factura\", \"fecha_emision\", \"proveedor\", \"ruc_proveedor\", \"cliente\", \"subtotal\", \"iva\", \"total\", \"moneda\"]} } }, messages: [{ role: 'user', content: [ { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: $json.pdf_base64 } }, { type: 'text', text: \"Eres un asistente contable. Lee la factura adjunta y extrae sus datos. Si un dato de texto no aparece, devuelve una cadena vacía; si un monto no aparece, devuelve 0. Usa punto decimal y no inventes valores.\" } ] }] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "b2c3d4e5-0003-4000-8000-000000000003",
+      "name": "Claude lee la factura",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lee la respuesta de Claude y la convierte en columnas\nconst r = $input.first().json;\nif (r.stop_reason === 'refusal') {\n  throw new Error('Claude no procesó este documento (refusal).');\n}\nconst bloque = (r.content || []).find(b => b.type === 'text');\nif (!bloque) throw new Error('Respuesta sin texto: ' + JSON.stringify(r).slice(0, 300));\nconst datos = JSON.parse(bloque.text);\nconst archivo = $('Formulario de factura').first().binary.factura?.fileName || 'factura.pdf';\nreturn [{ json: { archivo, ...datos } }];"
+      },
+      "id": "b2c3d4e5-0004-4000-8000-000000000004",
+      "name": "Convertir a columnas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO facturas (archivo, numero_factura, fecha_emision, proveedor, ruc_proveedor, cliente, subtotal, iva, total, moneda)\nVALUES ($1, $2, NULLIF($3, '')::date, $4, $5, $6, $7, $8, $9, $10)\nRETURNING id, numero_factura, proveedor, total;",
+        "options": {
+          "queryReplacement": "={{ [$json.archivo, $json.numero_factura, $json.fecha_emision, $json.proveedor, $json.ruc_proveedor, $json.cliente, $json.subtotal, $json.iva, $json.total, $json.moneda || 'USD'] }}"
+        }
+      },
+      "id": "b2c3d4e5-0005-4000-8000-000000000005",
+      "name": "Guardar en PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        960,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Formulario de factura": {
+      "main": [
+        [
+          {
+            "node": "PDF a base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF a base64": {
+      "main": [
+        [
+          {
+            "node": "Claude lee la factura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude lee la factura": {
+      "main": [
+        [
+          {
+            "node": "Convertir a columnas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convertir a columnas": {
+      "main": [
+        [
+          {
+            "node": "Guardar en PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
